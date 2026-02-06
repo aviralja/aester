@@ -122,7 +122,7 @@ async def analyze_complete_endpoint(file: UploadFile = File(..., description="Im
         }
 
         return CompleteAnalysisResponse(
-            success=True,
+            success=not ai_detection["is_ai_generated"] and civic_issue_dict["valid"],
             civic_issue=civic_issue_dict,
             ai_detection=ai_detection,
             message="Complete analysis finished",
@@ -138,6 +138,6 @@ if __name__ == "__main__":
     import uvicorn
 
     HOST = os.getenv("HOST", "0.0.0.0")
-    PORT = int(os.getenv("PORT", 8000))
+    PORT = int(os.getenv("PORT", 3000))
 
     uvicorn.run(app, host=HOST, port=PORT, log_level="info")
