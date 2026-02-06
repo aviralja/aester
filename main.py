@@ -1,643 +1,143 @@
 """
-FastAPI Application for Civic Issue Detection and AI Image Checking
+Minimal FastAPI Application for Civic Issue Detection
 
-This API uses the functions from civic_functions.py module to provide
-REST endpoints for image analysis.
+This simplified API matches the updated `civic_functions.py` model.
+
+Endpoints kept:
+- GET /health
+- POST /detect-civic-issue  -> returns `CivicIssue` from bytes
+- POST /analyze-complete    -> returns combined civic issue + AI check
+
+Removed other endpoints as requested.
 """
 
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
-from typing import Dict, Any, Optional
+from pydantic import BaseModel
+from typing import Dict, Any
 import os
 
-# Import our custom functions
 from civic_functions import (
     detect_civic_issue_from_bytes,
-    detect_civic_issue_from_bytes_description,
     check_if_ai_generated_bytes,
-    CivicIssue
+    CivicIssue,
 )
 
-
-# ============================================================================
-# FASTAPI APP INITIALIZATION
-# ============================================================================
 
 app = FastAPI(
-    title="Civic Issue Detection API",
-    description="API for detecting civic issues from images and checking if images are AI-generated",
-    version="2.0.0",
+    title="Civic Issue Detection API (minimal)",
+    version="1.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
 )
 
-# Enable CORS (Cross-Origin Resource Sharing)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify allowed origins
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-# ============================================================================
-# PYDANTIC RESPONSE MODELS
-# ============================================================================
-
 class CivicIssueResponse(BaseModel):
-    """Response model for civic issue detection"""
     success: bool
     data: CivicIssue
     message: str = ""
 
 
-class AIGeneratedResponse(BaseModel):
-    """Response model for AI image detection"""
-    success: bool
-    is_ai_generated: bool
-    confidence: float
-    full_result: Dict[Any, Any] = {}
-    message: str = ""
-
-
 class CompleteAnalysisResponse(BaseModel):
-    """Response model for complete analysis"""
     success: bool
-    civic_issue: Dict[str, str]
+    civic_issue: Dict[str, Any]
     ai_detection: Dict[str, Any]
     message: str = ""
 
 
-class ErrorResponse(BaseModel):
-    """Error response model"""
-    detail: str
-
-
-# ============================================================================
-# UTILITY FUNCTIONS
-# ============================================================================
-
 async def validate_image_file(file: UploadFile) -> bytes:
-    """
-    Validate that the uploaded file is an image and return its bytes.
-    
-    Args:
-        file: Uploaded file from FastAPI
-        
-    Returns:
-        bytes: Image file bytes
-        
-    Raises:
-        HTTPException: If file is not an image
-    """
-    # Check content type
-    if not file.content_type or not file.content_type.startswith('image/'):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid file type. Expected image, got {file.content_type}"
-        )
-    
-    # Check file size (max 10MB)
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail=f"Invalid file type. Expected image, got {file.content_type}")
+
     content = await file.read()
-    if len(content) > 10 * 1024 * 1024:  # 10MB
-        raise HTTPException(
-            status_code=400,
-            detail="File too large. Maximum size is 10MB"
-        )
-    
     if len(content) == 0:
-        raise HTTPException(
-            status_code=400,
-            detail="Empty file uploaded"
-        )
-    
+        raise HTTPException(status_code=400, detail="Empty file uploaded")
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large. Maximum size is 10MB")
+
     return content
-
-
-# ============================================================================
-# API ENDPOINTS
-# ============================================================================
-
-@app.get("/")
-async def root():
-    """
-    Root endpoint - API information
-    
-    Returns basic information about the API and available endpoints.
-    """
-    return {
-        "message": "Civic Issue Detection API",
-        "version": "2.0.0",
-        "description": "Detect civic issues and check AI-generated images",
-        "endpoints": {
-            "/detect-civic-issue": "POST - Detect civic issues from image",
-            "/detect-civic-issue-with-description": "POST - Detect civic issues with user description",
-            "/check-ai-generated": "POST - Check if image is AI-generated",
-            "/analyze-complete": "POST - Complete analysis (civic + AI)",
-            "/analyze-complete-with-description": "POST - Complete analysis with user description (civic + AI)",
-            "/health": "GET - Health check",
-            "/docs": "GET - Interactive API documentation",
-            "/redoc": "GET - Alternative API documentation"
-        },
-        "documentation": "/docs"
-    }
 
 
 @app.get("/health")
 async def health_check():
-    """
-    Health check endpoint
-    
-    Returns the health status of the API and configuration status.
-    """
     return {
         "status": "healthy",
-        "version": "2.0.0",
+        "version": "1.0.0",
         "api_configured": {
             "openai": bool(os.getenv("OPENAI_API_KEY")),
-            "sightengine": bool(os.getenv("SIGHTENGINE_API_USER") and os.getenv("SIGHTENGINE_API_SECRET"))
-        }
+            "sightengine": bool(os.getenv("SIGHTENGINE_API_USER") and os.getenv("SIGHTENGINE_API_SECRET")),
+        },
     }
 
 
-@app.post(
-    "/detect-civic-issue",
-    response_model=CivicIssueResponse,
-    responses={
-        200: {"description": "Successful civic issue detection"},
-        400: {"model": ErrorResponse, "description": "Invalid file type"},
-        500: {"model": ErrorResponse, "description": "Processing error"}
-    },
-    summary="Detect Civic Issues",
-    tags=["Civic Issue Detection"]
-)
+@app.post("/detect-civic-issue", response_model=CivicIssueResponse)
 async def detect_civic_issue_endpoint(file: UploadFile = File(..., description="Image file to analyze")):
-    """
-    Detect civic issues from an uploaded image.
-    
-    This endpoint analyzes an image using AI to identify various civic problems such as:
-    - Potholes and road damage
-    - Garbage overflow
-    - Water leakage
-    - Broken infrastructure
-    - And many more (see documentation)
-    
-    **Parameters:**
-    - **file**: Image file (JPEG, PNG, etc.) - Maximum 10MB
-    
-    **Returns:**
-    - **success**: Whether the detection was successful
-    - **data**: Object containing issue_type and description
-    - **message**: Status message
-    
-    **Example Response:**
-    ```json
-    {
-        "success": true,
-        "data": {
-            "issue_type": "Potholes",
-            "description": "Large pothole on main road causing traffic issues"
-        },
-        "message": "Civic issue detection completed successfully"
-    }
-    ```
-    """
     try:
-        # Validate and read image
         image_bytes = await validate_image_file(file)
-        
-        # Detect civic issue using our function
         civic_issue = detect_civic_issue_from_bytes(image_bytes)
-        
-        return CivicIssueResponse(
-            success=True,
-            data=civic_issue,
-            message="Civic issue detection completed successfully"
-        )
-        
+
+        return CivicIssueResponse(success=True, data=civic_issue, message="Civic issue detection completed")
+
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error processing image: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error processing image: {e}")
 
 
-@app.post(
-    "/check-ai-generated",
-    response_model=AIGeneratedResponse,
-    responses={
-        200: {"description": "Successful AI detection"},
-        400: {"model": ErrorResponse, "description": "Invalid file type"},
-        500: {"model": ErrorResponse, "description": "Processing error"}
-    },
-    summary="Check if Image is AI-Generated",
-    tags=["AI Detection"]
-)
-async def check_ai_generated_endpoint(
-    file: UploadFile = File(..., description="Image file to check"),
-    threshold: float = 0.5
-):
-    """
-    Check if an uploaded image is AI-generated.
-    
-    This endpoint uses Sightengine's AI detection model to determine whether
-    an image was created by AI or is a real photograph.
-    
-    **Parameters:**
-    - **file**: Image file (JPEG, PNG, etc.) - Maximum 10MB
-    - **threshold**: Confidence threshold (0.0 to 1.0). Default: 0.5
-      - Values above threshold are considered AI-generated
-      - Lower threshold = more sensitive (more false positives)
-      - Higher threshold = more strict (fewer false positives)
-    
-    **Returns:**
-    - **success**: Whether the detection was successful
-    - **is_ai_generated**: Boolean indicating if image is AI-generated
-    - **confidence**: Confidence score (0.0 to 1.0)
-    - **full_result**: Complete API response with additional details
-    - **message**: Status message
-    
-    **Example Response:**
-    ```json
-    {
-        "success": true,
-        "is_ai_generated": false,
-        "confidence": 0.23,
-        "full_result": {
-            "status": "success",
-            "type": {
-                "ai_generated": 0.23
-            }
-        },
-        "message": "AI detection completed successfully"
-    }
-    ```
-    """
+@app.post("/analyze-complete", response_model=CompleteAnalysisResponse)
+async def analyze_complete_endpoint(file: UploadFile = File(..., description="Image file to analyze"), ai_threshold: float = 0.5):
     try:
-        # Validate threshold
-        if not 0.0 <= threshold <= 1.0:
-            raise HTTPException(
-                status_code=400,
-                detail="Threshold must be between 0.0 and 1.0"
-            )
-        
-        # Validate and read image
-        image_bytes = await validate_image_file(file)
-        
-        # Check if AI-generated using our function
-        is_ai, full_result = check_if_ai_generated_bytes(image_bytes, threshold=threshold)
-        
-        # Extract confidence score
-        confidence = full_result.get("type", {}).get("ai_generated", 0) if full_result.get("status") == "success" else 0
-        
-        return AIGeneratedResponse(
-            success=full_result.get("status") == "success",
-            is_ai_generated=is_ai,
-            confidence=confidence,
-            full_result=full_result,
-            message="AI detection completed successfully" if full_result.get("status") == "success" else "AI detection failed"
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error processing image: {str(e)}"
-        )
-
-
-@app.post(
-    "/analyze-complete",
-    response_model=CompleteAnalysisResponse,
-    responses={
-        200: {"description": "Successful complete analysis"},
-        400: {"model": ErrorResponse, "description": "Invalid file type"},
-        500: {"model": ErrorResponse, "description": "Processing error"}
-    },
-    summary="Complete Analysis (Civic + AI)",
-    tags=["Complete Analysis"]
-)
-async def analyze_complete_endpoint(
-    file: UploadFile = File(..., description="Image file to analyze"),
-    ai_threshold: float = 0.5
-):
-    
-    try:
-        # Validate threshold
         if not 0.0 <= ai_threshold <= 1.0:
-            raise HTTPException(
-                status_code=400,
-                detail="AI threshold must be between 0.0 and 1.0"
-            )
-        
-        # Validate and read image
+            raise HTTPException(status_code=400, detail="AI threshold must be between 0.0 and 1.0")
+
         image_bytes = await validate_image_file(file)
-        
-        # Detect civic issue
+
+        # Detect civic issue from bytes
         civic_issue = detect_civic_issue_from_bytes(image_bytes)
-        
-        # Check if AI-generated
+
+        # Check if AI-generated using bytes helper
         is_ai, ai_result = check_if_ai_generated_bytes(image_bytes, threshold=ai_threshold)
-        
-        # Extract confidence score
+
         confidence = ai_result.get("type", {}).get("ai_generated", 0) if ai_result.get("status") == "success" else 0
-        
-        return CompleteAnalysisResponse(
-            success=True,
-            civic_issue={
-                "issue_type": civic_issue.issue_type,
-                "description": civic_issue.description
-            },
-            ai_detection={
-                "is_ai_generated": is_ai,
-                "confidence": confidence,
-                "status": ai_result.get("status", "unknown")
-            },
-            message="Complete analysis finished successfully"
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error processing image: {str(e)}"
-        )
 
-
-@app.post(
-    "/detect-civic-issue-with-description",
-    response_model=CivicIssueResponse,
-    responses={
-        200: {"description": "Successful civic issue detection with description"},
-        400: {"model": ErrorResponse, "description": "Invalid file type"},
-        500: {"model": ErrorResponse, "description": "Processing error"}
-    },
-    summary="Detect Civic Issues with User Description",
-    tags=["Civic Issue Detection"]
-)
-async def detect_civic_issue_with_description_endpoint(
-    file: UploadFile = File(..., description="Image file to analyze"),
-    description: str = ""
-):
-    """
-    Detect civic issues from an uploaded image with user description.
-    
-    This endpoint analyzes an image and considers user description along with
-    the image to identify civic problems. The description helps the AI model
-    better understand the context of the issue.
-    
-    **Parameters:**
-    - **file**: Image file (JPEG, PNG, etc.) - Maximum 10MB
-    - **description**: User's description of the issue in the image
-    
-    **Returns:**
-    - **success**: Whether the detection was successful
-    - **data**: Object containing issue_type and description
-    - **message**: Status message
-    
-    **Example Response:**
-    ```json
-    {
-        "success": true,
-        "data": {
-            "issue_type": "Potholes",
-            "description": "Large pothole on main road causing traffic issues"
-        },
-        "message": "Civic issue detection completed successfully"
-    }
-    ```
-    """
-    try:
-        # Validate and read image
-        image_bytes = await validate_image_file(file)
-        
-        # Detect civic issue with description
-        civic_issue = detect_civic_issue_from_bytes_description(image_bytes, description)
-        
-        return CivicIssueResponse(
-            success=True,
-            data=civic_issue,
-            message="Civic issue detection with description completed successfully"
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error processing image: {str(e)}"
-        )
-
-
-@app.post(
-    "/analyze-complete-with-description",
-    response_model=CompleteAnalysisResponse,
-    responses={
-        200: {"description": "Successful complete analysis with description"},
-        400: {"model": ErrorResponse, "description": "Invalid file type"},
-        500: {"model": ErrorResponse, "description": "Processing error"}
-    },
-    summary="Complete Analysis with Description (Civic + AI)",
-    tags=["Complete Analysis"]
-)
-async def analyze_complete_with_description_endpoint(
-    file: UploadFile = File(..., description="Image file to analyze"),
-    description: str = "",
-    ai_threshold: float = 0.5
-):
-    """
-    Perform complete analysis with user description: Detect civic issue AND check if AI-generated.
-    
-    This endpoint combines civic issue detection (with user description) and AI detection
-    in a single request for convenience. The user description helps the model better
-    understand the context of the issue in the image.
-    
-    **Parameters:**
-    - **file**: Image file (JPEG, PNG, etc.) - Maximum 10MB
-    - **description**: User's description of the issue in the image
-    - **ai_threshold**: AI detection threshold (0.0 to 1.0). Default: 0.5
-    
-    **Returns:**
-    - **success**: Whether the analysis was successful
-    - **civic_issue**: Object with issue_type and description
-    - **ai_detection**: Object with is_ai_generated, confidence, and status
-    - **message**: Status message
-    
-    **Example Response:**
-    ```json
-    {
-        "success": true,
-        "civic_issue": {
-            "issue_type": "Garbage overflow",
-            "description": "Overflowing garbage bin on street corner"
-        },
-        "ai_detection": {
-            "is_ai_generated": false,
-            "confidence": 0.15,
-            "status": "success"
-        },
-        "message": "Complete analysis finished successfully"
-    }
-    ```
-    """
-    try:
-        # Validate threshold
-        if not 0.0 <= ai_threshold <= 1.0:
-            raise HTTPException(
-                status_code=400,
-                detail="AI threshold must be between 0.0 and 1.0"
-            )
-        
-        # Validate and read image
-        image_bytes = await validate_image_file(file)
-        
-        # Detect civic issue with description
-        civic_issue = detect_civic_issue_from_bytes_description(image_bytes, description)
-        
-        # Check if AI-generated
-        is_ai, ai_result = check_if_ai_generated_bytes(image_bytes, threshold=ai_threshold)
-        
-        # Extract confidence score
-        confidence = ai_result.get("type", {}).get("ai_generated", 0) if ai_result.get("status") == "success" else 0
-        
-        return CompleteAnalysisResponse(
-            success=True,
-            civic_issue={
-                "issue_type": civic_issue.issue_type,
-                "description": civic_issue.description
-            },
-            ai_detection={
-                "is_ai_generated": is_ai,
-                "confidence": confidence,
-                "status": ai_result.get("status", "unknown")
-            },
-            message="Complete analysis with description finished successfully"
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error processing image: {str(e)}"
-        )
-
-
-# ============================================================================
-# ADDITIONAL UTILITY ENDPOINTS
-# ============================================================================
-
-@app.get(
-    "/supported-issues",
-    summary="Get Supported Issue Types",
-    tags=["Information"]
-)
-async def get_supported_issues():
-    """
-    Get a list of all supported civic issue types.
-    
-    Returns all the civic issue categories and specific types that the
-    detection model can identify.
-    """
-    return {
-        "categories": {
-            "Road & Transportation": [
-                "Potholes",
-                "Broken roads",
-                "Damaged footpaths",
-                "Speed breaker damage",
-                "Road waterlogging",
-                "Traffic signal not working",
-                "Missing signboards",
-                "Bus stop shelter damage"
-            ],
-            "Sanitation & Waste Management": [
-                "Garbage overflow",
-                "Missed garbage collection",
-                "Littering on streets",
-                "Open dumping",
-                "Public toilet dirty",
-                "Dead animal on road",
-                "Drain cleaning needed"
-            ],
-            "Water Supply & Sewerage": [
-                "Water pipe leakage",
-                "No water supply",
-                "Low water pressure",
-                "Sewer overflow",
-                "Open manhole",
-                "Blocked drainage",
-                "Contaminated water"
-            ],
-            "Electricity & Street Lighting": [
-                "Streetlight not working",
-                "Power outage",
-                "Fallen electric pole",
-                "Exposed wires",
-                "Transformer issue"
-            ],
-            "Public Health & Safety": [
-                "Stray animals",
-                "Mosquito breeding",
-                "Unsafe building",
-                "Fire hazard",
-                "Chemical spill",
-                "Gas leak",
-                "Accident prone area"
-            ],
-            "Environment & Parks": [
-                "Tree fallen",
-                "Illegal tree cutting",
-                "Park maintenance issue",
-                "Air pollution",
-                "Water pollution",
-                "Noise pollution"
-            ],
-            "Traffic & Law Enforcement": [
-                "Illegal parking",
-                "Signal jumping",
-                "Wrong side driving",
-                "Encroachment on road",
-                "Overloaded vehicles"
-            ],
-            "Public Infrastructure": [
-                "Broken benches",
-                "Damaged playground equipment",
-                "Bus stop damaged",
-                "Broken railing",
-                "Public building maintenance"
-            ]
+        civic_issue_dict = {
+            "valid": getattr(civic_issue, "valid", None),
+            "justification": getattr(civic_issue, "justification", None),
+            "description": getattr(civic_issue, "description", None),
+            "severity": getattr(civic_issue, "severity", None),
         }
-    }
 
+        ai_detection = {
+            "is_ai_generated": is_ai,
+            "confidence": confidence,
+            "status": ai_result.get("status", "unknown"),
+        }
 
-# ============================================================================
-# RUN THE APPLICATION
-# ============================================================================
+        return CompleteAnalysisResponse(
+            success=True,
+            civic_issue=civic_issue_dict,
+            ai_detection=ai_detection,
+            message="Complete analysis finished",
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing image: {e}")
+
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     HOST = os.getenv("HOST", "0.0.0.0")
     PORT = int(os.getenv("PORT", 8000))
-    
-    print("=" * 70)
-    print("🚀 Starting Civic Issue Detection API")
-    print("=" * 70)
-    print(f"📍 Server: http://{HOST}:{PORT}")
-    print(f"📚 Documentation: http://{HOST}:{PORT}/docs")
-    print(f"📖 Alternative Docs: http://{HOST}:{PORT}/redoc")
-    print("=" * 70)
-    
-    uvicorn.run(
-        app,
-        host=HOST,
-        port=PORT,
-        log_level="info"
-    )
+
+    uvicorn.run(app, host=HOST, port=PORT, log_level="info")
