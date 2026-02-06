@@ -1,0 +1,24 @@
+# FastAPI & Web Framework
+fastapi
+uvicorn[standard]
+python-multipart
+
+# Data Validation & Models
+pydantic
+
+# HTTP Requests
+requests
+
+# Image Processing
+pillow
+
+# LangChain & AI/LLM
+langchain
+langchain-openai
+langchain-core
+
+# Environment Variables
+python-dotenv
+
+# Typing (optional, for better type hints)
+typing-extensions
