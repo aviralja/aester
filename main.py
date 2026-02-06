@@ -14,6 +14,7 @@ import os
 # Import our custom functions
 from civic_functions import (
     detect_civic_issue_from_bytes,
+    detect_civic_issue_from_bytes_description,
     check_if_ai_generated_bytes,
     CivicIssue
 )
@@ -132,8 +133,10 @@ async def root():
         "description": "Detect civic issues and check AI-generated images",
         "endpoints": {
             "/detect-civic-issue": "POST - Detect civic issues from image",
+            "/detect-civic-issue-with-description": "POST - Detect civic issues with user description",
             "/check-ai-generated": "POST - Check if image is AI-generated",
             "/analyze-complete": "POST - Complete analysis (civic + AI)",
+            "/analyze-complete-with-description": "POST - Complete analysis with user description (civic + AI)",
             "/health": "GET - Health check",
             "/docs": "GET - Interactive API documentation",
             "/redoc": "GET - Alternative API documentation"
@@ -356,6 +359,165 @@ async def analyze_complete_endpoint(
                 "status": ai_result.get("status", "unknown")
             },
             message="Complete analysis finished successfully"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error processing image: {str(e)}"
+        )
+
+
+@app.post(
+    "/detect-civic-issue-with-description",
+    response_model=CivicIssueResponse,
+    responses={
+        200: {"description": "Successful civic issue detection with description"},
+        400: {"model": ErrorResponse, "description": "Invalid file type"},
+        500: {"model": ErrorResponse, "description": "Processing error"}
+    },
+    summary="Detect Civic Issues with User Description",
+    tags=["Civic Issue Detection"]
+)
+async def detect_civic_issue_with_description_endpoint(
+    file: UploadFile = File(..., description="Image file to analyze"),
+    description: str = ""
+):
+    """
+    Detect civic issues from an uploaded image with user description.
+    
+    This endpoint analyzes an image and considers user description along with
+    the image to identify civic problems. The description helps the AI model
+    better understand the context of the issue.
+    
+    **Parameters:**
+    - **file**: Image file (JPEG, PNG, etc.) - Maximum 10MB
+    - **description**: User's description of the issue in the image
+    
+    **Returns:**
+    - **success**: Whether the detection was successful
+    - **data**: Object containing issue_type and description
+    - **message**: Status message
+    
+    **Example Response:**
+    ```json
+    {
+        "success": true,
+        "data": {
+            "issue_type": "Potholes",
+            "description": "Large pothole on main road causing traffic issues"
+        },
+        "message": "Civic issue detection completed successfully"
+    }
+    ```
+    """
+    try:
+        # Validate and read image
+        image_bytes = await validate_image_file(file)
+        
+        # Detect civic issue with description
+        civic_issue = detect_civic_issue_from_bytes_description(image_bytes, description)
+        
+        return CivicIssueResponse(
+            success=True,
+            data=civic_issue,
+            message="Civic issue detection with description completed successfully"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error processing image: {str(e)}"
+        )
+
+
+@app.post(
+    "/analyze-complete-with-description",
+    response_model=CompleteAnalysisResponse,
+    responses={
+        200: {"description": "Successful complete analysis with description"},
+        400: {"model": ErrorResponse, "description": "Invalid file type"},
+        500: {"model": ErrorResponse, "description": "Processing error"}
+    },
+    summary="Complete Analysis with Description (Civic + AI)",
+    tags=["Complete Analysis"]
+)
+async def analyze_complete_with_description_endpoint(
+    file: UploadFile = File(..., description="Image file to analyze"),
+    description: str = "",
+    ai_threshold: float = 0.5
+):
+    """
+    Perform complete analysis with user description: Detect civic issue AND check if AI-generated.
+    
+    This endpoint combines civic issue detection (with user description) and AI detection
+    in a single request for convenience. The user description helps the model better
+    understand the context of the issue in the image.
+    
+    **Parameters:**
+    - **file**: Image file (JPEG, PNG, etc.) - Maximum 10MB
+    - **description**: User's description of the issue in the image
+    - **ai_threshold**: AI detection threshold (0.0 to 1.0). Default: 0.5
+    
+    **Returns:**
+    - **success**: Whether the analysis was successful
+    - **civic_issue**: Object with issue_type and description
+    - **ai_detection**: Object with is_ai_generated, confidence, and status
+    - **message**: Status message
+    
+    **Example Response:**
+    ```json
+    {
+        "success": true,
+        "civic_issue": {
+            "issue_type": "Garbage overflow",
+            "description": "Overflowing garbage bin on street corner"
+        },
+        "ai_detection": {
+            "is_ai_generated": false,
+            "confidence": 0.15,
+            "status": "success"
+        },
+        "message": "Complete analysis finished successfully"
+    }
+    ```
+    """
+    try:
+        # Validate threshold
+        if not 0.0 <= ai_threshold <= 1.0:
+            raise HTTPException(
+                status_code=400,
+                detail="AI threshold must be between 0.0 and 1.0"
+            )
+        
+        # Validate and read image
+        image_bytes = await validate_image_file(file)
+        
+        # Detect civic issue with description
+        civic_issue = detect_civic_issue_from_bytes_description(image_bytes, description)
+        
+        # Check if AI-generated
+        is_ai, ai_result = check_if_ai_generated_bytes(image_bytes, threshold=ai_threshold)
+        
+        # Extract confidence score
+        confidence = ai_result.get("type", {}).get("ai_generated", 0) if ai_result.get("status") == "success" else 0
+        
+        return CompleteAnalysisResponse(
+            success=True,
+            civic_issue={
+                "issue_type": civic_issue.issue_type,
+                "description": civic_issue.description
+            },
+            ai_detection={
+                "is_ai_generated": is_ai,
+                "confidence": confidence,
+                "status": ai_result.get("status", "unknown")
+            },
+            message="Complete analysis with description finished successfully"
         )
         
     except HTTPException:

@@ -59,7 +59,7 @@ llm = ChatOpenAI(
 parser = PydanticOutputParser(pydantic_object=CivicIssue)
 
 # Create the prompt template
-prompt = ChatPromptTemplate.from_messages([
+prompt1 = ChatPromptTemplate.from_messages([
     (
         "system",
         """
@@ -138,6 +138,93 @@ RULES:
 # ============================================================================
 # FUNCTION 1: DETECT CIVIC ISSUE FROM IMAGE
 # ============================================================================
+prompt2=ChatPromptTemplate.from_messages([
+    (
+        "system",
+        """
+You are an AI vision system for civic issue detection.
+
+TASK:
+1. Use BOTH the user description and the image.
+2. Determine whether a civic issue is present.
+
+IF NO civic issue is visible:
+- issue_type = "cant_find"
+- description = "No civic issue detected"
+
+IF YES:
+- Choose ONLY ONE issue_type from the allowed list.
+- Write a short, clear description of the issue.
+
+DESCRIPTION RULES:
+- One sentence only.
+- Describe what is wrong and where.
+- Do NOT mention camera, image, or photo.
+
+ALLOWED ISSUE TYPES:
+
+Road & Transportation:
+Potholes, Broken roads, Damaged footpaths, Speed breaker damage,
+Road waterlogging, Traffic signal not working, Missing signboards,
+Bus stop shelter damage
+
+Sanitation & Waste Management:
+Garbage overflow, Missed garbage collection, Littering on streets,
+Open dumping, Public toilet dirty, Dead animal on road,
+Drain cleaning needed
+
+Water Supply & Sewerage:
+Water pipe leakage, No water supply, Low water pressure,
+Sewer overflow, Open manhole, Blocked drainage, Contaminated water
+
+Electricity & Street Lighting:
+Streetlight not working, Power outage, Fallen electric pole,
+Exposed wires, Transformer issue
+
+Public Health & Safety:
+Stray animals, Mosquito breeding, Unsafe building, Fire hazard,
+Chemical spill, Gas leak, Accident prone area
+
+Environment & Parks:
+Tree fallen, Illegal tree cutting, Park maintenance issue,
+Air pollution, Water pollution, Noise pollution
+
+Traffic & Law Enforcement:
+Illegal parking, Signal jumping, Wrong side driving,
+Encroachment on road, Overloaded vehicles
+
+Public Infrastructure:
+Broken benches, Damaged playground equipment,
+Bus stop damaged, Broken railing, Public building maintenance
+
+RULES:
+- Never invent new issue types.
+- Choose the closest match.
+- Output must strictly follow JSON.
+
+{format_instructions}
+"""
+    ),
+    (
+        "human",
+        [
+            {
+                "type": "text",
+                "text": "User description: {user_description}"
+            },
+            {
+                "type": "text",
+                "text": "Analyze the image and description together."
+            },
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": "data:image/jpeg;base64,{image_base64}"
+                }
+            }
+        ]
+    )
+])
 
 def detect_civic_issue_from_image(image_path: str) -> CivicIssue:
     
@@ -152,7 +239,7 @@ def detect_civic_issue_from_image(image_path: str) -> CivicIssue:
             image_base64 = base64.b64encode(image_bytes).decode('utf-8')
         
         # Create the processing chain
-        chain = prompt | llm | parser
+        chain = prompt1 | llm | parser
         
         # Invoke the chain with the image
         result = chain.invoke({
@@ -165,6 +252,32 @@ def detect_civic_issue_from_image(image_path: str) -> CivicIssue:
     except Exception as e:
         raise Exception(f"Error detecting civic issue: {str(e)}")
 
+def detect_civic_issue_from_image_description(image_path: str, user_description: str) -> CivicIssue:
+    
+    # Check if file exists
+    if not os.path.exists(image_path):
+        raise FileNotFoundError(f"Image file not found: {image_path}")
+    
+    try:
+        # Read and convert image to base64
+        with open(image_path, "rb") as image_file:
+            image_bytes = image_file.read()
+            image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+        
+        # Create the processing chain
+        chain = prompt2 | llm | parser
+        
+        # Invoke the chain with the image
+        result = chain.invoke({
+            "image_base64": image_base64,
+            "user_description": user_description,
+            "format_instructions": parser.get_format_instructions()
+        })
+        
+        return result
+        
+    except Exception as e:
+        raise Exception(f"Error detecting civic issue: {str(e)}")
 def detect_civic_issue_from_bytes(image_bytes: bytes) -> CivicIssue:
     """
     Detect civic issues from image bytes.
@@ -173,7 +286,7 @@ def detect_civic_issue_from_bytes(image_bytes: bytes) -> CivicIssue:
     try:
         image_base64 = base64.b64encode(image_bytes).decode("utf-8")
 
-        chain = prompt | llm | parser
+        chain = prompt1 | llm | parser
 
         result = chain.invoke({
             "image_base64": image_base64,
@@ -185,6 +298,28 @@ def detect_civic_issue_from_bytes(image_bytes: bytes) -> CivicIssue:
     except Exception as e:
         raise Exception(f"Error detecting civic issue: {str(e)}")
 
+def detect_civic_issue_from_bytes_description(image_bytes: bytes, user_description: str) -> CivicIssue:
+    """
+    Detect civic issues from image bytes and user description.
+    Used directly by FastAPI.
+    """
+    try:
+        image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+
+        chain = prompt2 | llm | parser
+
+        result = chain.invoke({
+            "image_base64": image_base64,
+            "user_description": user_description,
+            "format_instructions": parser.get_format_instructions()
+        })
+
+        return result
+
+   
+
+    except Exception as e:
+        raise Exception(f"Error detecting civic issue: {str(e)}")
 
 
 def check_if_ai_generated(image_path: str, threshold: float = 0.5) -> Tuple[bool, Dict[str, Any]]:
