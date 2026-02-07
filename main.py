@@ -33,9 +33,10 @@ app = FastAPI(
 )
 # CORS Configuration for both local and production
 ALLOWED_ORIGINS = [
-    "https://aestr.vercel.app",  # Production frontend (no trailing slash)
-    "http://localhost:3000",      # Local dev
-    "http://localhost:5173",      # Vite dev server
+    "https://aestr.vercel.app",
+    "https://www.aestr.vercel.app",
+    "http://localhost:3000",
+    "http://localhost:5173",
 ]
 
 app.add_middleware(
