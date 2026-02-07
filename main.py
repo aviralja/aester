@@ -210,6 +210,6 @@ if __name__ == "__main__":
     import uvicorn
 
     HOST = os.getenv("HOST", "0.0.0.0")
-    PORT = int(os.getenv("PORT", 3000))
+    PORT = int(os.getenv("PORT", 8080))
 
     uvicorn.run(app, host=HOST, port=PORT, log_level="info")
