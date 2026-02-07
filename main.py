@@ -11,7 +11,7 @@ Endpoints kept:
 Removed other endpoints as requested.
 """
 
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Dict, Any
@@ -19,6 +19,7 @@ import os
 
 from civic_functions import (
     detect_civic_issue_from_bytes,
+    detect_civic_issue_from_bytes_description,
     check_if_ai_generated_bytes,
     CivicIssue,
 )
@@ -92,6 +93,24 @@ async def detect_civic_issue_endpoint(file: UploadFile = File(..., description="
         raise HTTPException(status_code=500, detail=f"Error processing image: {e}")
 
 
+@app.post("/detect-civic-issue-with-description", response_model=CivicIssueResponse)
+async def detect_civic_issue_with_description(
+    file: UploadFile = File(..., description="Image file to analyze"),
+    description: str = Form(..., description="User-provided description to verify with the image"),
+):
+    try:
+        image_bytes = await validate_image_file(file)
+
+        civic_issue = detect_civic_issue_from_bytes_description(image_bytes, description)
+
+        return CivicIssueResponse(success=True, data=civic_issue, message="Civic issue detection with description completed")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing image: {e}")
+
+
 @app.post("/analyze-complete", response_model=CompleteAnalysisResponse)
 async def analyze_complete_endpoint(file: UploadFile = File(..., description="Image file to analyze"), ai_threshold: float = 0.5):
     try:
@@ -126,6 +145,52 @@ async def analyze_complete_endpoint(file: UploadFile = File(..., description="Im
             civic_issue=civic_issue_dict,
             ai_detection=ai_detection,
             message="Complete analysis finished",
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing image: {e}")
+
+
+@app.post("/analyze-complete-description", response_model=CompleteAnalysisResponse)
+async def analyze_complete_endpoint_description(
+    file: UploadFile = File(..., description="Image file to analyze"),
+    description: str = Form(..., description="User-provided description to verify with the image"),
+    ai_threshold: float = 0.5,
+):
+    try:
+        if not 0.0 <= ai_threshold <= 1.0:
+            raise HTTPException(status_code=400, detail="AI threshold must be between 0.0 and 1.0")
+
+        image_bytes = await validate_image_file(file)
+
+        # Use the description-aware detector
+        civic_issue = detect_civic_issue_from_bytes_description(image_bytes, description)
+
+        # Check if AI-generated using bytes helper
+        is_ai, ai_result = check_if_ai_generated_bytes(image_bytes, threshold=ai_threshold)
+
+        confidence = ai_result.get("type", {}).get("ai_generated", 0) if ai_result.get("status") == "success" else 0
+
+        civic_issue_dict = {
+            "valid": getattr(civic_issue, "valid", None),
+            "justification": getattr(civic_issue, "justification", None),
+            "description": getattr(civic_issue, "description", None),
+            "severity": getattr(civic_issue, "severity", None),
+        }
+
+        ai_detection = {
+            "is_ai_generated": is_ai,
+            "confidence": confidence,
+            "status": ai_result.get("status", "unknown"),
+        }
+
+        return CompleteAnalysisResponse(
+            success=not ai_detection["is_ai_generated"] and civic_issue_dict["valid"],
+            civic_issue=civic_issue_dict,
+            ai_detection=ai_detection,
+            message="Complete analysis with description finished",
         )
 
     except HTTPException:

@@ -51,8 +51,6 @@ llm = ChatOpenAI(
 
 # Initialize the Pydantic parser
 parser = PydanticOutputParser(pydantic_object=CivicIssue)
-
-# Create the prompt template
 prompt1 = ChatPromptTemplate.from_messages([
 (
 "system",
@@ -149,6 +147,103 @@ Be concise and factual.
 )
 ])
 
+# Create the prompt template
+prompt2 = ChatPromptTemplate.from_messages([
+(
+"system",
+"""
+You are an expert AI system for Sanitation & Waste Management issue analysis using images.
+
+Your task is to analyze the provided image and return a structured JSON following exactly the given schema.
+
+-----------------------------
+OBJECTIVES
+-----------------------------
+
+1. Determine whether the image is a VALID sanitation-related civic issue.
+2. If valid, describe what sanitation problem is visible.
+3. Justify clearly why the image is valid or invalid.
+4. Assign severity based on public health risk.
+
+-----------------------------
+VALIDITY RULES
+-----------------------------
+
+valid = True ONLY IF:
+- Image clearly shows at least one sanitation issue such as:
+  Missed garbage collection,
+  Littering on streets,
+  Open dumping,
+  Public toilet dirty,
+  Dead animal on road,
+  Drain cleaning needed.
+
+valid = False IF:
+- Image is unrelated (people selfies, landscapes, random objects, or other problem except sanitation and waste detection)
+- Image is too blurry or dark
+- image dont show sanitation and waste detection issue
+- No sanitation problem is visible
+
+If valid = False:
+- description = reason why valid is false
+- severity = "low"
+
+-----------------------------
+SEVERITY DEFINITIONS
+-----------------------------
+
+LOW:
+- Small litter
+- Dry waste
+- No insects, no decay, no standing water
+
+MEDIUM:
+- Overflowing garbage bins
+- Dirty toilets
+- Stagnant water
+- Mild odor or insects
+
+HIGH:
+- Dead animals
+- Medical or biological waste
+- Decomposing garbage
+- Sewage mixed with waste
+- Heavy flies/rodents
+- Situations likely to spread disease
+
+-----------------------------
+OUTPUT RULES
+-----------------------------
+
+Return ONLY valid JSON.
+Do NOT include explanations outside JSON.
+Follow exactly this schema:
+
+{format_instructions}
+
+-----------------------------
+THINKING PROCESS
+-----------------------------
+
+1. Check if sanitation issue exists.
+2. Decide valid true/false.
+3. Identify main problem.
+4. Evaluate health risk.
+5. Generate short justification.
+6. Assign severity.
+
+Be concise and factual.
+"""
+),
+(
+"human",
+[
+ {"type": "text", "text": "User-provided description of the issue:\n{description}\n\nAnalyze the image and verify whether the description matches the visible sanitation issue."},
+ {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,{image_base64}"}}
+]
+)
+])
+
 
 
 def detect_civic_issue_from_image(image_path: str) -> CivicIssue:
@@ -190,6 +285,28 @@ def detect_civic_issue_from_bytes(image_bytes: bytes) -> CivicIssue:
 
         result = chain.invoke({
             "image_base64": image_base64,
+            "format_instructions": parser.get_format_instructions()
+        })
+
+        return result
+
+    except Exception as e:
+        raise Exception(f"Error detecting civic issue: {str(e)}")
+
+
+def detect_civic_issue_from_bytes_description(image_bytes: bytes, description: str) -> CivicIssue:
+    """
+    Detect civic issues from image bytes.
+    Used directly by FastAPI.
+    """
+    try:
+        image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+
+        chain = prompt2 | llm | parser
+
+        result = chain.invoke({
+            "image_base64": image_base64,
+            "description": description,
             "format_instructions": parser.get_format_instructions()
         })
 
