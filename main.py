@@ -32,7 +32,7 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 # CORS Configuration for both local and production
-ALLOWED_ORIGINS = [
+ALLOWED_ORIGINS = ["https://aestr-anawcbeef9czg5c4.centralindia-01.azurewebsites.net",
     "https://aestr.vercel.app",
     "https://www.aestr.vercel.app",
     "http://localhost:3000",
