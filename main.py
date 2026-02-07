@@ -31,19 +31,16 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
-# Get allowed origins from environment, default to localhost for development
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:5173").split(",")
+# CORS Configuration for both local and production
+ALLOWED_ORIGINS = [
+    "https://aestr.vercel.app",  # Production frontend (no trailing slash)
+    "http://localhost:3000",      # Local dev
+    "http://localhost:5173",      # Vite dev server
+]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
